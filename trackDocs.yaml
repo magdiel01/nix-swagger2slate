@@ -1,0 +1,1472 @@
+# Node Anchors:
+recipeObj: &recipeObj
+  type: object
+  properties:
+    id:
+      type: string
+    user_id:
+      type: string
+    food_name:
+      type: string
+    source:
+      type: integer
+      description: One of (1, natural) (4, recipe) (8, api) (9, custom) (10, nix legacy menu) (11, nix legacy modifier)
+    source_key:
+      type: string
+      description: when x, then y
+    full_nutrients:
+      type: array
+      items:
+        type: object
+    serving_weight_grams:
+      type: number
+    serving_unit:
+      type: string
+    serving_qty:
+      type: number
+    ingredients:
+      description: Array of recipe items (recursive to 1 level)
+      type: array
+      items:
+        type: object
+
+consumes: &consumes
+  consumes:
+    - application/json
+  produces:
+    - application/json
+
+
+swagger: '2.0'
+info:
+  version: '1.0'
+  title: Track API
+  description: API for Nutritionix Track application.
+host: trackapi.nutritionix.com
+basePath: /
+schemes:
+  - https
+parameters:
+  # gf = get food
+  gfLimit:
+    name: limit
+    in: query
+    description: limit the number of foods returned
+    type: string
+    required: false
+  gfOffset:
+    name: offset
+    in: query
+    description: offset to start returning foods after. Use this to paginate results.
+    type: string
+    required: false
+  gfBegin:
+    name: begin
+    in: query
+    description: "The lower bound for returned foods. Must be in a moment.js compliant format. Default format: YYYY-MM-DD HH:mm:ss"
+    type: string
+    required: false
+  gfEnd:
+    name: end
+    in: query
+    description: "The upper bound for returned foods. Must be in a moment.js compliant format. Default format: YYYY-MM-DD HH:mm:ss"
+    type: string
+    required: false
+  gfTimezone:
+    name: timezone
+    in: query
+    description: a timezone to use such as UTC or US/Eastern
+    type: string
+    required: false
+    default: US/Eastern
+  gfFoodIds:
+    name: foodIds
+    in: query
+    description: array of food ids to return
+    type: array
+    items:
+      type: string
+    required: false
+  gfSource:
+    name: source
+    in: query
+    description: sourcetype to filter by
+    type: number
+    required: false
+  userJwt:
+    name: x-user-jwt
+    in: header
+    description: auth. Substitutable with bearer token
+    type: string
+  bearerToken:
+    name: Authentication
+    in: header
+    description: OAuth2 bearer token. Substitutable with x-user-jwt
+    type: string
+  appId:
+    name: x-app-id
+    in: header
+    description: auth
+    type: string
+  remoteUserId:
+    name: x-remote-user-id
+    in: header
+    description: auth
+    required: true
+    type: string
+  appKey:
+    name: x-app-key
+    in: header
+    description: auth
+    type: string
+  query:
+    name: query
+    in: body
+    description: natural language query
+    required: true
+    schema:
+      type: object
+      required:
+        - query
+      properties:
+        query:
+          type: string
+        num_servings:
+          type: number
+          default: 1
+          description: 'the number of servings this dish yields. The nutrients when this food is logged will be divided by this number.'
+        aggregate:
+          type: string
+          description: 'if present, it combines all the foods into one food object with the food_name equal to the value of this field'
+        line_delimited:
+          type: boolean
+          default: false
+          description: 'if present, it expects only 1 food per line and will return an array of rules broken if there are any. i.e. 2+ foods on a line, no foods detected on this line, etc'
+        timezone:
+          type: string
+          default: 'US/Eastern'
+          description: timezone in which to parse relative time queries like "yesterday I ate x"
+        consumed_at:
+          type: string
+          default: null
+          description: ISO compliant date format. Will overwrite any interpreted time contexts.
+        lat:
+          type: number
+          description: latitude
+          default: null
+        lng:
+          type: number
+          description: longitude
+          default: null
+  updatePrefs:
+    name: updatePrefs
+    in: body
+    description: preferences object
+    required: true
+    schema:
+      type: object
+      properties:
+        first_name:
+          type: string
+        last_name:
+          type: string
+        daily_kcal:
+          type: integer
+          description: must be between 0 and 10000
+        timezone:
+          type: string
+        enable_weekday_sms:
+          type: integer
+          description: '0 = false, 1 = true'
+        enable_review_foods:
+          type: integer
+          description: '0 = false, 1 = true'
+        oauths:
+          type: array
+          items:
+            type: object
+            properties:
+              provider:
+                type: string
+                description: name of provider, i.e. fitbit
+              log_pref:
+                type: integer
+                minimum: 0
+                maximum: 1
+                description: must be either 0 or 1.
+        account_setup:
+          type: string
+          description: moment.js compliant format
+        default_nutrient:
+          type: integer
+          description: usda id of the primary nutrient to track. Currently valid options are 208 (kcal), 205 (carbs), 307 (sodium). Updating either default_nutrient or default_nutrient_value requires both fields to be present.
+        default_nutrient_value:
+          type: number
+          description: value for default_nutrient, not to exceed 100k.  Updating either default_nutrient or default_nutrient_value requires both fields to be present.
+          maximum: 100000
+        birth_year:
+          type: number
+          description: The year of birth, i.e. "1985"
+        height_cm:
+          type: number
+        weight_kg:
+          type: number
+        gender:
+          type: string
+        measure_system:
+          description: 0=metric, 1=imperial
+          type: integer
+          minimum: 0
+          maximum: 1
+        exercise_level:
+          description: level of exercise. 1-5
+          type: integer
+          minimum: 0
+          maximum: 9
+  naturalUpdate:
+    name: naturalUpdateQuery
+    in: body
+    description: natural update. At this time it only supports uploading a single food object but the food schema looks like the other endpoints for consistency (but this endpoint doesnt allow multiple foods as of yet).
+    required: true
+    schema:
+      type: object
+      required:
+        - query
+        - foods
+      properties:
+        query:
+          type: string
+        num_servings:
+          type: number
+          default: 1
+        foods:
+          type: array
+          items:
+            type: object
+            required:
+              - id
+            properties:
+              id:
+                type: string
+              consumed_at:
+                type: string
+  manualSignupObj:
+    name: user
+    in: body
+    description: user object with manual signup fields such as password (not OAuth)
+    required: true
+    schema:
+      type: object
+      properties:
+        password:
+          type: string
+        email:
+          type: string
+        first_name:
+          type: string
+        timezone:
+          type: string
+          description: a timezone to use such as UTC or US/Eastern
+  manualUserObj:
+    name: user
+    in: body
+    description: user object with manual login fields such as password (not OAuth)
+    required: true
+    schema:
+      type: object
+      properties:
+        password:
+          type: string
+        mobile_number:
+          type: string
+        email:
+          type: string
+  step1Obj:
+    name: user
+    in: body
+    description: user object with manual login fields such as password (not OAuth). Must include email OR mobile_number but not both. ref_code is optional.
+    required: true
+    schema:
+      type: object
+      properties:
+        mobile_number:
+          type: string
+        email:
+          type: string
+        ref_code:
+          type: string
+  step2Obj:
+    name: user
+    in: body
+    description: user object. If signup originated from oauth then password field and any other previously acquired fields not required.
+    required: true
+    schema:
+      type: object
+      properties:
+        first_name:
+          type: string
+        last_name:
+          type: string
+        password:
+          type: string
+        link_hash:
+          type: string
+        referrer_accepted:
+          type: boolean
+        timezone:
+          type: string
+          description: a timezone to use such as UTC or US/Eastern
+  referralSignupObj:
+    name: referral
+    in: body
+    description: user object for referral signup
+    required: true
+    schema:
+      type: object
+      properties:
+        first_name:
+          type: string
+        last_name:
+          type: string
+        mobile_number:
+          type: string
+        email:
+          type: string
+  facebookSignupObj:
+    name: signup
+    in: body
+    description: facebook signup object
+    required: true
+    schema:
+      type: object
+      properties:
+        access_token:
+          type: string
+        timezone:
+          type: string
+          description: a timezone to use such as UTC or US/Eastern. Defaults to US/Eastern
+paths:
+  '/v1/natural/nutrients':
+    post:
+      description: Returns the nutrients for all foods in the posted query.
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      parameters:
+        - $ref: '#/parameters/query'
+        - $ref: '#/parameters/appId'
+        - $ref: '#/parameters/appKey'
+        - $ref: '#/parameters/remoteUserId'
+      responses:
+        '200':
+          description: Operation successful
+        '400':
+          description: Validation error
+        '500':
+          description: Base error
+  '/v1/natural/tags':
+    post:
+      description: 'Returns the tags for the posted query'
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      parameters:
+        - $ref: '#/parameters/query'
+      responses:
+        '200':
+          description: Operation successful
+        '500':
+          description: Base error
+  '/v1/natural/add':
+    post:
+      description: 'Logs the nutrients to the users food log and returns the nutrients'
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      parameters:
+        - $ref: '#/parameters/query'
+        - $ref: '#/parameters/userJwt'
+      responses:
+        '201':
+          description: Successfully logged nutrients and returned
+        '400':
+          description: Validation error
+        '401':
+          description: token authentication error
+        '500':
+          description: base error
+  '/v1/natural/update':
+    put:
+      description: 'updates an item by id with the result of a new query to natural. For best results, make sure the format of query is: "[QUANTITY] [MEASURE] [ITEM]"'
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      parameters:
+        - $ref: '#/parameters/naturalUpdate'
+        - $ref: '#/parameters/userJwt'
+      responses:
+        '200':
+          description: Successfully updated a food
+        '400':
+          description: Validation error
+        '401':
+          description: token authentication error
+        '500':
+          description: base error
+  '/v1/log/{foodId}/detailed':
+    get:
+      description: Gets detailed info about a food object, including it's subcomponents (other foods) if available.
+      produces:
+        - application/json
+      parameters:
+        - $ref: '#/parameters/userJwt'
+      responses:
+        '200':
+          description: Operation successful
+
+  '/v1/log/{userId}':
+    get:
+      description: Gets the food log for a given user (assuming the requester has permission to view them)
+      produces:
+        - application/json
+      parameters:
+        - $ref: '#/parameters/userJwt'
+        - $ref: '#/parameters/gfLimit'
+        - $ref: '#/parameters/gfOffset'
+        - $ref: '#/parameters/gfFoodIds'
+        - $ref: '#/parameters/gfSource'
+        - $ref: '#/parameters/gfBegin'
+        - $ref: '#/parameters/gfEnd'
+        - $ref: '#/parameters/gfTimezone'
+        - name: userId
+          in: path
+          description: user id
+          required: true
+          type: string
+      responses:
+        '200':
+          description: Operation successful
+        '401':
+          description: token authentication error
+        '500':
+          description: base error
+
+  '/v1/log':
+    get:
+      description: 'Gets the users food log'
+      produces:
+        - application/json
+      parameters:
+        - $ref: '#/parameters/userJwt'
+        - $ref: '#/parameters/gfLimit'
+        - $ref: '#/parameters/gfOffset'
+        - $ref: '#/parameters/gfFoodIds'
+        - $ref: '#/parameters/gfSource'
+        - $ref: '#/parameters/gfBegin'
+        - $ref: '#/parameters/gfEnd'
+        - $ref: '#/parameters/gfTimezone'
+      responses:
+        '200':
+          description: Operation successful
+        '401':
+          description: token authentication error
+        '500':
+          description: base error
+    post:
+      description: Post foods to users food log
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      parameters:
+        - $ref: '#/parameters/userJwt'
+        - name: food object
+          in: body
+          description: Object detailing foods and nutrients to log
+          required: true
+          schema:
+            $ref: '#/definitions/postFood'
+      responses:
+        '201':
+          description: Successfully validated and logged nutrients
+        '400':
+          description: Validation error
+        '401':
+          description: token authentication error
+        '500':
+          description: base error
+    put:
+      description: Update food in food log.
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      parameters:
+        - $ref: '#/parameters/userJwt'
+        - name: foods array
+          in: body
+          description: array of food items with their respective id
+          required: true
+          schema:
+            $ref: '#/definitions/updateFood'
+      responses:
+        '200':
+          description: Successfully updated foods
+        '401':
+          description: token authentication error
+        '500':
+          description: base error
+    delete:
+      description: Delete food from food log
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      parameters:
+        - $ref: '#/parameters/userJwt'
+        - name: foods array
+          in: body
+          description: array of food items with their respective id
+          required: true
+          schema:
+            $ref: '#/definitions/deleteFood'
+      responses:
+        '200':
+          description: Successfully deleted foods
+        '401':
+          description: token authentication error
+        '500':
+          description: base error
+  '/v1/log/barcode':
+    post:
+      description: log a food by barcode
+      produces:
+        - application/json
+      parameters:
+        - $ref: '#/parameters/userJwt'
+        - name: barcodeBody
+          in: body
+          required: true
+          schema:
+            type: object
+            properties:
+              upc:
+                type: number
+              consumed_at:
+                type: string
+                description: "Must be in a moment.js compliant format. Default format: YYYY-MM-DDTHH:mm:ssZ. Currently, timezone parsing is not accounted for, so include UTC offsets."
+              lat:
+                type: number
+                description: latitude
+              lng:
+                type: number
+                description: longitude
+      responses:
+        '201':
+          description: Operation successful
+    get:
+      description: get a food by barcode
+      produces:
+        - application/json
+      parameters:
+        - $ref: '#/parameters/userJwt'
+        - name: upc
+          in: query
+          type: number
+      responses:
+        '200':
+          description: Operation successful
+
+  '/v1/users':
+    get:
+      description: retrieves user(s) whom the requester has access to view
+      produces:
+        - application/json
+      parameters:
+        - $ref: '#/parameters/userJwt'
+      responses:
+        '200':
+          description: Operation successful. Returns an hash(object) of user objects where the keys are user ids.
+        '401':
+          description: token authentication error
+        '500':
+          description: base error
+  '/v1/users/preferences':
+    put:
+      description: updates a users preferences (currently only supports daily_kcal).
+      produces:
+        - application/json
+      parameters:
+        - $ref: '#/parameters/userJwt'
+        - name: prefsObj
+          in: body
+          required: true
+          schema:
+            type: object
+            properties:
+              users:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    daily_kcal:
+                      type: number
+      responses:
+        '200':
+          description: Operation successful. Returns an hash(object) of user objects where the keys are user ids.
+        '401':
+          description: token authentication error
+        '500':
+          description: base error
+  '/v1/me':
+    get:
+      description: retrieves own user object
+      produces:
+        - application/json
+      parameters:
+        - $ref: '#/parameters/userJwt'
+      responses:
+        '200':
+          description: Operation successful. Returns an hash(object) of user objects where the keys are user ids.
+        '401':
+          description: token authentication error
+        '500':
+          description: base error
+  '/v1/me/preferences':
+    put:
+      description: updates user preferences
+      produces:
+        - application/json
+      parameters:
+        - $ref: '#/parameters/userJwt'
+        - $ref: '#/parameters/updatePrefs'
+      responses:
+        '200':
+          description: Operation successful. Returns an hash(object) of user objects where the keys are user ids.
+        '400':
+          description: invalid params
+        '500':
+          description: base error
+  '/v1/me/autocomplete':
+    get:
+      description: retrieves a list of logged food names by the user for use in autocomplete list.
+      produces:
+        - application/json
+      parameters:
+        - $ref: '#/parameters/userJwt'
+        - name: limit
+          in: query
+          description: 'Maximum number of entries to return'
+          type: integer
+          maximum: 500
+          minimum: 1
+          required: false
+          default: 300
+        - name: source
+          in: query
+          description: 'Limit output to specific food sources. Can be either integer, or comma-separated list e.g. 1,2,3'
+          type: string
+          required: false
+        - name: recent
+          in: query
+          description: 'Switches ordering to "consumed_at DESC'
+          type: boolean
+          required: false
+          default: false
+        - name: skip_full_nutrients
+          in: query
+          description: 'Do not include full_nutrients arrays in food objects to smaller data transfer'
+          type: boolean
+          required: false
+          default: true
+      responses:
+        '200':
+          description: Operation successful.
+
+  '/v1/auth/signup':
+    post:
+      description: 'Creates a user. Requires minimum of first_name, password, and email fields'
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      parameters:
+        - $ref: '#/parameters/manualSignupObj'
+      responses:
+        '201':
+          description: Operation successful. Returns user object.
+        '500':
+          description: base error
+
+  '/v1/auth/signin':
+    post:
+      description: 'logs into a user. Requires minimum of password, and either phone or email fields'
+      produces:
+        - application/json
+      parameters:
+        - $ref: '#/parameters/manualUserObj'
+      responses:
+        '201':
+          description: Operation successful. Returns user object.
+        '500':
+          description: base error
+  '/v1/auth/updatePassword':
+    get:
+      description: 'requests a password reset link to be sent to email or phone number'
+      produces:
+        - application/json
+      parameters:
+        - name: email
+          in: query
+          description: required if mobile_number is absent
+          type: string
+        - name: mobile_number
+          in: query
+          description: required if email is absent
+          type: string
+      responses:
+        '200':
+          description: Operation successful
+    post:
+      description: 'updates a password. NOTE: either requires link_hash and password (to send password reset email) or jwt/bearer token, oldPassword, and password fields to reset without email confirmation.'
+      produces:
+        - application/json
+      parameters:
+        - $ref: '#/parameters/userJwt'
+        - name: resetPasswordObj
+          in: body
+          required: true
+          schema:
+            type: object
+            properties:
+              link_hash:
+                type: string
+              password:
+                type: string
+              oldPassword:
+                type: string
+
+      responses:
+        '200':
+          description: Operation successful
+  '/v1/auth/email/verify/request':
+    get:
+      description: 'requests an email verification link'
+      produces:
+        - application/json
+      parameters:
+        - name: email
+          in: query
+          type: string
+      responses:
+        '200':
+          description: Operation successful
+  '/v1/auth/email/verify/complete':
+    get:
+      description: validates and links an email to account.
+      produces:
+        - application/json
+      parameters:
+        - name: code
+          in: query
+          type: string
+      responses:
+        '200':
+          description: Operation successful
+
+  '/v1/oauth/facebook/signin':
+    get:
+      description: signs a user in (creates acct if needed) via fb token and returns a new x-user-jwt token
+      produces:
+        - application/json
+      parameters:
+        - $ref: '#/parameters/facebookSignupObj'
+      responses:
+        '201':
+          description: Operation successful
+          schema:
+            $ref: '#/definitions/tokenReturn'
+        '401':
+          description: token authentication error
+        '500':
+          description: base error
+
+  '/v1/oauth/fitbit/sign':
+    post:
+      description: 'returns a string used to link the user to a fitbit account. pass it to the authorize endpoint'
+      parameters:
+        - $ref: '#/parameters/userJwt'
+      produces:
+        - application/json
+      responses:
+        '201':
+          description: Operation successful. Returns state param for next step.
+        '500':
+          description: base error
+  '/v1/oauth/fitbit/authorize':
+      get:
+        description: 'begins the oauth2 flow for fitbit login'
+        produces:
+          - application/json
+        parameters:
+          - name: state
+            in: query
+            type: string
+            required: true
+            description: 'the state string acquired from the /sign endpoint. These are valid for 1 use.'
+        responses:
+          '302':
+            description: Operation successful.
+          '500':
+            description: base error
+  '/v1/oauth/fitbit/success':
+    get:
+      description: 'signifies the successful end of fitbit-linking'
+      produces:
+        - application/json
+      responses:
+        '200':
+          description: Operation successful.
+        '500':
+          description: base error
+  '/v1/oauth/fitbit/unlink':
+    get:
+      description: 'unlinks fitbit account'
+      parameters:
+        - $ref: '#/parameters/userJwt'
+      responses:
+        '200':
+          description: Operation successful.
+
+  '/v1/oauth/server/authorize':
+    post:
+      description: authenticates user, generates oauth code for authorization_code grant and redirects. Uses application/x-www-form-urlencoded content-type. Notice x-user-jwt is sent in form data for authentication, not in headers.
+      consumes:
+        - 'application/x-www-form-urlencoded'
+      produces:
+        - text/html
+      parameters:
+        - name: x-user-jwt
+          in: formData
+          type: string
+          description: the same x-user-jwt, but in a form param instead of a header.
+        - name: allowed
+          in: formData
+          type: boolean
+          description: if the user allowed access. Defaults to false.
+        - name: response_type
+          in: formData
+          type: string
+          description: oauth param. Must be 'code'
+        - name: redirect_uri
+          in: formData
+          type: string
+          description: where the redirect will point. Must match a valid redirect_uri for the client_id
+        - name: client_id
+          in: formData
+          type: string
+          description: The oauth client_id
+        - name: state
+          in: query
+          type: string
+          description: state param to be returned in redirect
+      responses:
+        '302':
+          description: redirect to a matched redirect_uri
+  '/v1/oauth/server/token':
+    post:
+      description: exchange code or refresh token for access_token. Uses application/x-www-form-urlencoded content-type.
+      consumes:
+        - 'application/x-www-form-urlencoded'
+      produces:
+        - application/json
+      parameters:
+        - name: client_id
+          in: formData
+          type: string
+          description: The oauth client_id
+        - name: client_secret
+          in: formData
+          type: string
+          description: the oauth client_secret
+        - name: grant_type
+          in: formData
+          type: string
+          description: currently, only supported grant is "authorization_code" and "refresh_token"
+        - name: code
+          in: formData
+          type: string
+          description: code which was returned from the authorize step
+        - name: refresh_token
+          in: formData
+          type: string
+          description: refresh_token
+      responses:
+        '200':
+          description: Returns access/refresh tokens
+  'v1/oauth/server/{clientId}':
+    get:
+      description: get public info about an oauth client
+      produces:
+        - application/json
+      parameters:
+        - name: clientId
+          in: path
+          description: client id
+          required: true
+          type: string
+      responses:
+        '200':
+          description: Operation successful.
+  'v1/oauth/server/revoke/client/{clientId}':
+    delete:
+      description: Invalidates refresh & access tokens from the user/oauth client combination
+      produces:
+        - application/json
+      parameters:
+        - $ref: '#/parameters/userJwt'
+        - $ref: '#/parameters/bearerToken'
+        - name: clientId
+          in: path
+          description: client id
+          required: true
+          type: string
+      responses:
+        '200':
+          description: Operation successful
+  '/v1/permissions/request':
+    post:
+      description: 'requests permissions from a user via their id'
+      produces:
+        - application/json
+      parameters:
+        - $ref: '#/parameters/userJwt'
+        - name: requestUserObjs
+          in: body
+          description: users to request permissions from
+          required: true
+          schema:
+            type: object
+            properties:
+              users:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    mobile_number:
+                      type: string
+                    email:
+                      type: string
+      responses:
+        '202':
+          description: Operation successful.
+        '500':
+          description: base error
+  '/v1/reports/totals':
+    get:
+      description: 'requests historical food log data'
+      produces:
+        - application/json
+      parameters:
+        - $ref: '#/parameters/userJwt'
+        - name: user
+          in: query
+          description: a user id. defaults to the authenticated user
+          type: string
+          required: false
+        - name: begin
+          in: query
+          description: "The lower bound for returned foods. Must be in a moment.js compliant format. Must be no earlier than 93 days prior to current time. defaults to now - 30 days in format: YYYY-MM-DD HH:mm:ss"
+          type: string
+          required: false
+        - name: end
+          in: query
+          description: "The upper bound for returned foods. Must be in a moment.js compliant format. Must be no later than current time. defaults to now in format: YYYY-MM-DD HH:mm:ss"
+          type: string
+          required: false
+        - name: timezone
+          in: query
+          description: a timezone to use such as UTC or US/Eastern
+          type: string
+          required: false
+          default: US/Eastern
+        - name: today
+          in: query
+          description: a boolean indicating that 'begin' should be overridden and the begin value should be set to the start of today in whatever timezone is used.
+          type: boolean
+          default: false
+      responses:
+        '200':
+          description: Operation successful.
+        '500':
+          description: base error
+  '/v1/reports/suggested':
+    get:
+      description: 'requests suggested foods that users consume around this time/day'
+      produces:
+        - application/json
+      parameters:
+        - $ref: '#/parameters/userJwt'
+      responses:
+        '200':
+          description: Operation successful.
+        '500':
+          description: base error
+  '/v1/reports/summary':
+    get:
+      description: gets number of days that user has logged in a row, total days that a user has logged sufficient foods, and total unique number of foods logged.
+    produces:
+      - application/json
+    parameters:
+      - $ref: '#/parameters/userJwt'
+      - name: timezone
+        in: query
+        description: timezone to use for this query. defaults to users timezone on account i.e. UTC or US/Eastern
+        type: string
+        required: false
+
+  '/v1/recipes':
+    get:
+      description: Fetch list of recipes belonging to user
+      <<: *consumes
+      parameters:
+        - $ref: '#/parameters/userJwt'
+      responses:
+        '200':
+          description: Operation successful
+        '400':
+          description: Validation error
+        '500':
+          description: Base error
+    post:
+      description: 'Post a new recipe. NOTE: ingredients may also be a string (to be proxied to natural /nutrients first'
+      parameters:
+        - $ref: '#/parameters/userJwt'
+        - name: recipeObj
+          in: body
+          description: requires food_name, source, source_key
+          schema:
+            <<: *recipeObj
+      <<: *consumes
+      responses:
+        '201':
+          description: Op successful
+        '500':
+          description: Base error
+
+  '/v1/recipes/{recipeId}':
+    get:
+      description: Get a detailed recipe by id.
+      <<: *consumes
+      parameters:
+        - $ref: '#/parameters/userJwt'
+        - name: recipeId
+          in: path
+          type: string
+      responses:
+        '200':
+          description: Operation successful
+        '400':
+          description: Validation error
+        '500':
+          description: Base error
+    put:
+      description: update a recipe's top level attributes
+      parameters:
+        - $ref: '#/parameters/userJwt'
+        - name: recipeId
+          in: path
+          type: string
+        - name: recipeObj
+          in: body
+          description: Allows updating a recipe with the following keys ['food_name', 'serving_weight_grams', 'serving_unit', 'serving_qty']. full_nutrients can be updated as well on the condition that a recipe has no ingredients (then the recipe is a 'base' and solely built from the full nutrients array)
+          schema:
+            <<: *recipeObj
+          responses:
+            '200': Op successful
+    delete:
+      description: delete a recipe
+      parameters:
+        - $ref: '#/parameters/userJwt'
+        - name: recipeId
+          in: path
+          type: string
+      responses:
+        '200': Op successful
+
+  '/v1/recipes/{recipeId}/ingredients':
+    post:
+      description: add ingredients to a recipe
+      parameters:
+        - $ref: '#/parameters/userJwt'
+        - name: recipeId
+          in: path
+          type: string
+        - name: recipeObj
+          in: body
+          description: 'Pass an array of ingredients to add them to a recipes definition. Can be passed as either full-fledged objects, or as objects of id references to other recipes. NOTE: instead of the array of ingredients, an object with the field "query" may be specified to proxy to natural /nutrients'
+          schema:
+            type: array
+            items:
+              <<: *recipeObj
+      responses:
+        '201': Op successful
+        '500': Base error
+    put:
+      description: update ingredients in a recipe
+      parameters:
+        - $ref: '#/parameters/userJwt'
+        - name: recipeId
+          in: path
+          type: string
+        - name: recipeObj
+          in: body
+          description: Pass an array of ingredients to update in a recipe's definition. Must include matching ids.
+          schema:
+            type: array
+            items:
+              <<: *recipeObj
+      responses:
+        '200': Op successful
+        '500': Base error
+    delete:
+      description: remove ingredients in a recipe
+      parameters:
+        - $ref: '#/parameters/userJwt'
+        - name: recipeId
+          in: path
+          type: string
+        - name: idObj
+          in: body
+          description: Pass an array of objects with ingredient ids for removal.
+          schema:
+            type: array
+            items:
+              type: object
+              properties:
+                id:
+                  type: string
+      responses:
+        '200': Op successful
+        '500': Base error
+
+  '/v1/messages':
+    get:
+      parameters:
+        - $ref: '#/parameters/userJwt'
+      description: 'get messages'
+      produces:
+        - application/json
+      responses:
+        '200':
+          description: Operation successful.
+  '/v1/messages/update':
+    put:
+      description: 'update messages'
+      produces:
+        - application/json
+      parameters:
+        - $ref: '#/parameters/userJwt'
+        - name: messages
+          in: body
+          description: messages object
+          required: true
+          schema:
+            type: object
+            properties:
+              messages:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    viewed:
+                      type: number
+                      default: 0
+                      description: 'Mark the message as viewed.'
+                    deleted:
+                      type: number
+                      default: 0
+                      description: 'Mark the message as deleted.'
+      responses:
+        '200':
+          description: Operation successful.
+  '/v1/auth/sms/verification':
+    get:
+      description: 'initiate mobil linking'
+      produces:
+        - application/json
+      parameters:
+        - $ref: '#/parameters/userJwt'
+        - name: mobile_number
+          in: query
+          description: the mobile number to validate. Can be in formats such as +1[AREA_CODE][#], or [AREA_CODE][#], i.e. +11234567890
+          type: string
+          required: true
+      responses:
+        '200':
+          description: Operation successful.
+    post:
+      description: 'completes validation'
+      produces:
+        - application/json
+      parameters:
+        - $ref: '#/parameters/userJwt'
+        - name: code
+          in: body
+          description: 'verification code from sms, i.e. 123-456. Codes are valid for 1 week. Formats include ###-### and ######'
+          required: true
+          schema:
+            type: object
+            properties:
+              code:
+                type: string
+      responses:
+        '200':
+          description: Operation successful.
+    delete:
+      description: 'unlinks mobile number from account'
+      produces:
+        - application/json
+      parameters:
+        - $ref: '#/parameters/userJwt'
+      responses:
+        '200':
+          description: Operation successful.
+  '/v1/share/food/{foodId}/{shareKey}':
+    get:
+      description: 'gets a food via id and sharekey. no authentication required.'
+      produces:
+        - application/json
+      parameters:
+        - name: foodId
+          in: path
+          description: food id
+          required: true
+          type: string
+        - name: shareKey
+          in: path
+          description: share key
+          required: true
+          type: string
+  '/v1/utils/nutrients':
+    get:
+      description: gets the superset of possible values used in full_nutrients array.
+      produces:
+        - application/json
+  'v1/search/instant':
+    get:
+      description: get a list of foods from users own food log, list of common foods, and branded foods. Supports autocomplete style matching as well.
+      produces:
+        - application/json
+      parameters:
+        - $ref: '#/parameters/userJwt'
+        - $ref: '#/parameters/appId'
+        - $ref: '#/parameters/appKey'
+        - name: query
+          in: query
+          description: query to be executed against.
+          required: true
+          type: string
+        - name: branded
+          in: query
+          type: boolean
+          default: true
+          description: whether to include branded results
+        - name: self
+          in: query
+          type: boolean
+          description: whether to include users food log results
+          default: true
+        - name: common
+          in: query
+          type: boolean
+          description: whether to include common food results
+          default: true
+
+  '/v1/oauth/facebook/i --DEPRECATED':
+    post:
+      description: 'logs in a user (returning token), or initiates signup if no user account exists (returning link_hash and user object for step2 signup)'
+      produces:
+        - application/json
+      parameters:
+        - name: fbSignupObject
+          in: body
+          description: access token and optionally ref_code (ref_code only used for signup)
+          required: true
+          schema:
+            type: object
+            properties:
+              access_token:
+                type: string
+              ref_code:
+                type: string
+      responses:
+        '201':
+          description: Operation successful
+
+  '/v1/auth/signup/step1 --DEPRECATED':
+    post:
+      description: 'Starts user creation process, resulting in validation email/sms. Requires minimum of first_name, password, and either phone or email fields'
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      parameters:
+        - $ref: '#/parameters/step1Obj'
+      responses:
+        '201':
+          description: Operation successful. Returns user object.
+        '500':
+          description: base error
+
+  '/v1/auth/signup/step2 --DEPRECATED':
+    post:
+      description: 'completes user creation process.'
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      parameters:
+        - $ref: '#/parameters/step2Obj'
+      responses:
+        '201':
+          description: Operation successful. Returns user object.
+        '500':
+          description: base error
+
+definitions:
+  recipe_ingredient:
+    type: object
+    properties:
+      id:
+        type: string
+      food_name:
+        type: string
+      serving_qty:
+        type: number
+      serving_unit:
+        type: string
+      serving_weight_grams:
+        type: number
+      full_nutrients:
+        type: array
+        items:
+          type: object
+      brand_name:
+        type: string
+      nix_brand_id:
+        type: string
+      upc:
+        type: number
+      note:
+        type: string
+      source:
+        type: integer
+      alt_measures:
+        type: array
+        items:
+          type: object
+  recipe:
+    type: object
+    properties:
+      id:
+        type: string
+      recipe_name:
+        type: string
+      directions:
+        type: string
+      description:
+        type: string
+      ingredients:
+        type: array
+        items:
+          $ref: '#/definitions/recipe_ingredient'
+      total_servings:
+        type: number
+      serving_unit:
+        type: string
+      prep_time:
+        type: integer
+        description: in minutes
+      cook_time:
+        type: integer
+        description: in minutes
+      alt_measures:
+        type: array
+        items:
+          type: object
+  naturalQuery:
+    type: object
+    required:
+      - query
+    properties:
+      query:
+        type: string
+  tokenReturn:
+    type: object
+    properties:
+      x-user-jwt:
+        type: string
+      user:
+        $ref: '#/definitions/userObj'
+  userObj:
+    type: object
+    properties:
+      id:
+        type: string
+      first_name:
+        type: string
+      last_name:
+        type: string
+  postFood:
+    type: object
+    required:
+      - foods
+    properties:
+      lat:
+        type: number
+        description: latitude
+      lng:
+        type: number
+        description: longitude
+      aggregate:
+        type: string
+        description: If present, will reduce all foods into one food with food_name = value of this field
+      consumed_at:
+        type: string
+        description: ISO compliant date format. Will overwrite any interpreted time contexts.
+      brand_name:
+        type: string
+        description: brand_name to be applied to all foods.
+      foods:
+        type: array
+        items:
+          type: object
+  updateFood:
+    type: object
+    required:
+      - foods
+    properties:
+      foods:
+        type: array
+        items:
+          type: object
+  deleteFood:
+    type: object
+    required:
+      - foods
+    properties:
+      foods:
+        type: array
+        items:
+          type: object
